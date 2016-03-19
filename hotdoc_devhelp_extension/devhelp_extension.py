@@ -17,6 +17,7 @@
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import shutil
 
 from collections import defaultdict
 from collections import OrderedDict
@@ -39,6 +40,8 @@ u"""<?xml version="1.0"?>
 <book xmlns="http://www.devhelp.net/book" title="%s" link="%s" \
 author="hotdoc" name="%s" version="2" language="%s"/>
 """
+
+HERE = os.path.dirname(__file__)
 
 class FormattedSymbol(object):
     def __init__(self, sym, subfolder):
@@ -185,9 +188,19 @@ class DevhelpExtension(BaseExtension):
 
         recursive_overwrite(html_path, dh_html_path)
 
+        # Remove some stuff not relevant in devhelp
+        with open(os.path.join(dh_html_path, 'assets', 'css',
+            'devhelp.css'), 'w') as _:
+            _.write('[data-hotdoc-role="navigation"] {display: none;}\n')
+        shutil.rmtree(os.path.join(dh_html_path, 'assets', 'js'))
+
         for page in doc_repo.doc_tree.walk():
             if page.is_root:
                 self.__format_subtree(doc_repo.doc_tree, page)
+
+    def __formatting_page_cb(self, formatter, page):
+        page.output_attrs['html']['stylesheets'].add(
+            os.path.join(HERE, 'devhelp.css'))
 
     def setup(self):
         if not DevhelpExtension.activated:
@@ -198,6 +211,7 @@ class DevhelpExtension(BaseExtension):
             return
 
         Formatter.writing_page_signal.connect(self.__writing_page_cb)
+        Formatter.formatting_page_signal.connect(self.__formatting_page_cb)
         self.doc_repo.formatted_signal.connect_after(self.__formatted_cb)
 
     @staticmethod

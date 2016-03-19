@@ -33,7 +33,7 @@ setup(
     description = ("An extension for hotdoc to create devhelp indexes."),
     author = "Mathieu Duponchelle",
     packages = find_packages(),
-    package_data = {'hotdoc_devhelp_extension': ['VERSION.txt']},
+    package_data = {'hotdoc_devhelp_extension': ['VERSION.txt', 'devhelp.css']},
     entry_points = {'hotdoc.extensions': 'get_extension_classes = hotdoc_devhelp_extension.devhelp_extension:get_extension_classes'},
     install_requires = [
         'lxml',
