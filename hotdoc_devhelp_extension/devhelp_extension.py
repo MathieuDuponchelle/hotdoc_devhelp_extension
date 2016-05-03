@@ -75,7 +75,7 @@ TYPE_MAP = {
 
 
 class DevhelpExtension(BaseExtension):
-    EXTENSION_NAME='devhelp-extension'
+    extension_name='devhelp-extension'
     argument_prefix='devhelp'
     activated = False
 
