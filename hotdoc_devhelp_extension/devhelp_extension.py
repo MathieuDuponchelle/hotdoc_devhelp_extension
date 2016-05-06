@@ -98,7 +98,7 @@ class DevhelpExtension(BaseExtension):
 
     def __format_chapters(self, doc_tree, pnode, page, html_path, fpages):
         for name in page.subpages:
-            cpage = doc_tree.pages[name]
+            cpage = doc_tree.get_pages()[name]
             if cpage.extension_name != page.extension_name:
                 continue
             fpage = fpages[cpage.source_file]
@@ -194,13 +194,38 @@ class DevhelpExtension(BaseExtension):
             _.write('[data-hotdoc-role="navigation"] {display: none;}\n')
         shutil.rmtree(os.path.join(dh_html_path, 'assets', 'js'))
 
+        roots = {}
+        all_pages = doc_repo.doc_tree.get_pages()
+
         for page in doc_repo.doc_tree.walk():
-            if page.is_root:
-                self.__format_subtree(doc_repo.doc_tree, page)
+            if page.extension_name not in roots:
+                roots[page.extension_name] = page
+
+        for page in roots.values():
+            self.__format_subtree(doc_repo.doc_tree, page)
+
+    def format_subpage_table(self, page, subpages):
+        res = []
+        res.append('<h3 class="devhelp-subpages">Subpages</h3>')
+        res.append('<table><tbody>')
+        for subpage in subpages:
+            ref = subpage.link.get_link()
+            if page.extension_name == 'core' and subpage.extension_name == 'gi-extension':
+                ref = 'c/%s' % ref
+            link = '<a href="%s">%s</a>' % (ref, subpage.get_title())
+            res.append('<tr class="devhelp-subpages"><td>%s</td><td>%s</td></tr>' %
+                (link, subpage.short_description or 'No summary available'))
+        res.append('</tbody></table>')
+        return '\n'.join(res)
 
     def __formatting_page_cb(self, formatter, page):
         page.output_attrs['html']['stylesheets'].add(
             os.path.join(HERE, 'devhelp.css'))
+        all_pages = self.doc_repo.doc_tree.get_pages()
+        subpages = [all_pages.get(p) for p in page.subpages]
+        if subpages:
+            page.output_attrs['html']['extra_html'].append(
+                self.format_subpage_table(page, subpages))
 
     def setup(self):
         if not DevhelpExtension.activated:
