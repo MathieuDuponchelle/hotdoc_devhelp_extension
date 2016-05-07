@@ -209,7 +209,7 @@ class DevhelpExtension(BaseExtension):
         res.append('<h3 class="devhelp-subpages">Subpages</h3>')
         res.append('<table><tbody>')
         for subpage in subpages:
-            ref = subpage.link.get_link()
+            ref = subpage.link.ref
             if page.extension_name == 'core' and subpage.extension_name == 'gi-extension':
                 ref = 'c/%s' % ref
             link = '<a href="%s">%s</a>' % (ref, subpage.get_title())
@@ -223,6 +223,7 @@ class DevhelpExtension(BaseExtension):
             os.path.join(HERE, 'devhelp.css'))
         all_pages = self.doc_repo.doc_tree.get_pages()
         subpages = [all_pages.get(p) for p in page.subpages]
+        print "Formatting page", page.source_file
         if subpages:
             page.output_attrs['html']['extra_html'].append(
                 self.format_subpage_table(page, subpages))
