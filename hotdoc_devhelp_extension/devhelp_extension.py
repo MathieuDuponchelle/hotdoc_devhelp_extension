@@ -223,7 +223,6 @@ class DevhelpExtension(BaseExtension):
             os.path.join(HERE, 'devhelp.css'))
         all_pages = self.doc_repo.doc_tree.get_pages()
         subpages = [all_pages.get(p) for p in page.subpages]
-        print "Formatting page", page.source_file
         if subpages:
             page.output_attrs['html']['extra_html'].append(
                 self.format_subpage_table(page, subpages))
