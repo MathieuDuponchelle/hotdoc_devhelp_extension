@@ -17,6 +17,7 @@
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import re
 import shutil
 
 from collections import defaultdict
@@ -49,28 +50,20 @@ class FormattedSymbol(object):
         self.ref = os.path.join(subfolder, sym.link.ref)
         self.display_name = sym.link.title
 
-
-class FormattedPage(object):
-    def __init__(self, page, subfolder):
-        self.source_file = page.source_file
-        self.formatted_symbols = []
-        self.full_ref = os.path.join(subfolder, page.link.ref)
-        self.title = page.get_title() or 'missing-title'
-        for symbol in page.symbols:
-            if not symbol.skip:
-                self.formatted_symbols.append(
-                    FormattedSymbol(symbol, subfolder))
-
-
 TYPE_MAP = {
     FunctionSymbol: 'function',
+    ClassSymbol: 'class',
     StructSymbol: 'struct',
     EnumSymbol: 'enum',
     PropertySymbol: 'property',
     SignalSymbol: 'signal',
     ConstantSymbol: 'macro',
     FunctionMacroSymbol: 'macro',
-    CallbackSymbol: 'function'
+    CallbackSymbol: 'function',
+    InterfaceSymbol: 'interface',
+    AliasSymbol: 'alias',
+    VFunctionSymbol: 'vfunc',
+    ExportedVariableSymbol: 'extern',
 }
 
 
@@ -81,110 +74,81 @@ class DevhelpExtension(BaseExtension):
 
     def __init__(self, doc_repo):
         BaseExtension.__init__(self, doc_repo)
-        self.__formatted_pages = defaultdict(list)
         self.__ext_languages = defaultdict(set)
+        self.__resolved_symbols_map = {}
 
     def __writing_page_cb(self, formatter, page, path):
-        relpath = os.path.relpath(path, self.doc_repo.output)
-        language = ''
-        if page.languages:
-            language = page.languages[0]
-        key = page.extension_name + '-' + (language or '')
+        html_path = os.path.join(self.doc_repo.output, 'html')
+        relpath = os.path.relpath(path, html_path)
 
-        self.__ext_languages[page.extension_name].add(language)
+        dirname = os.path.dirname(relpath)
+        self.__resolved_symbols_map[relpath] = [FormattedSymbol(sym, dirname) for sym in page.symbols]
 
-        self.__formatted_pages[key].append(FormattedPage(page,
-            os.path.dirname(relpath)))
-
-    def __format_chapters(self, doc_tree, pnode, page, html_path, fpages):
+    def __format_subs(self, doc_tree, pnode, page):
         for name in page.subpages:
             cpage = doc_tree.get_pages()[name]
-            if cpage.extension_name != page.extension_name:
-                continue
-            fpage = fpages[cpage.source_file]
-            ref = os.path.join(html_path, fpage.full_ref)
+            if cpage.extension_name == 'gi-extension':
+                ref = 'c/%s' % cpage.link.ref
+            else:
+                ref = cpage.link.ref
+
             node = etree.Element('sub',
-                attrib = {'name': fpage.title,
+                attrib = {'name': cpage.title,
                           'link': ref})
             pnode.append(node)
-            self.__format_chapters(doc_tree, node, cpage, html_path, fpages)
+            self.__format_subs(doc_tree, node, cpage)
 
-    def __format_index(self, doc_tree, page, language):
-        key = page.extension_name + '-' + (language or '')
-        fpages = self.__formatted_pages[key]
-
-        oname = self.doc_repo.project_name
-        if self.doc_repo.project_version:
-            oname += '-%s' % self.doc_repo.project_version
-
-        if page.extension_name != 'core':
-            oname += '-%s' % page.extension_name
-
-        if language:
-            oname += '-%s' % language
+    def __format(self, doc_repo):
+        oname = doc_repo.project_name
+        oname = re.sub('\W+', '-', oname)
+        title = doc_repo.project_name
+        if doc_repo.project_version:
+            oname += '-%s' % doc_repo.project_version
+            title += ' %s' % doc_repo.project_version
 
         opath = os.path.join(self.doc_repo.output, 'devhelp', oname)
 
-        if not os.path.exists(opath):
-            os.makedirs(opath)
+        boilerplate = BOILERPLATE % (
+            title,
+            doc_repo.doc_tree.root.link.ref,
+            oname,
+            'C')
 
-        opath = os.path.join(opath, oname + '.devhelp2')
+        root = etree.fromstring(boilerplate)
 
-        html_path = os.path.join('..', self.doc_repo.project_name + '-html')
+        chapter_node = etree.Element('chapters')
+        self.__format_subs(doc_repo.doc_tree, chapter_node, doc_repo.doc_tree.root)
+        root.append(chapter_node)
 
-        findex = None
         funcs_node = etree.Element('functions')
-        fpage_map = {}
-        for fpage in fpages:
-            fpage_map[fpage.source_file] = fpage
-            if fpage.source_file == page.source_file:
-                findex = fpage
-            for sym in fpage.formatted_symbols:
+        for page, symbols in self.__resolved_symbols_map.iteritems():
+            for sym in symbols:
                 if sym.type_ is None:
                     continue
                 node = etree.Element('keyword',
                     attrib={'type': sym.type_,
                             'name': sym.display_name,
-                            'link': os.path.join(html_path, sym.ref)})
+                            'link': sym.ref})
                 funcs_node.append(node)
 
-        chapter_node = etree.Element('chapters')
-        self.__format_chapters(doc_tree, chapter_node, page, html_path,
-            fpage_map)
-
-        full_ref = os.path.join(html_path, findex.full_ref)
-
-        title = '%s %s' % (self.doc_repo.project_name, page.get_title())
-        if language:
-            title += ' (%s)' % language
-
-        boilerplate = BOILERPLATE % (
-            title,
-            full_ref,
-            oname,
-            language)
-
-        root = etree.fromstring(boilerplate)
-        root.append(chapter_node)
         root.append(funcs_node)
-        tree = etree.ElementTree(root)
 
-        tree.write(opath, pretty_print=True,
+        index_path = os.path.join(opath, oname + '.devhelp2')
+
+        if not os.path.exists(opath):
+            os.makedirs(opath)
+
+        tree = etree.ElementTree(root)
+        tree.write(index_path, pretty_print=True,
             encoding='utf-8', xml_declaration=True)
 
-    def __format_subtree(self, doc_tree, page):
-        for l in self.__ext_languages[page.extension_name]:
-            self.__format_index(doc_tree, page, l)
+        return opath
 
     def __formatted_cb(self, doc_repo):
+        dh_html_path = self.__format(doc_repo)
         formatter = self.doc_repo.extensions['core'].get_formatter('html')
         html_path = os.path.join(self.doc_repo.output,
                 formatter.get_output_folder())
-
-        oname = doc_repo.project_name + '-html'
-
-        dh_html_path = os.path.join(self.doc_repo.output, 'devhelp',
-            oname, formatter.get_output_folder())
 
         recursive_overwrite(html_path, dh_html_path)
 
@@ -192,40 +156,10 @@ class DevhelpExtension(BaseExtension):
         with open(os.path.join(dh_html_path, 'assets', 'css',
             'devhelp.css'), 'w') as _:
             _.write('[data-hotdoc-role="navigation"] {display: none;}\n')
-        shutil.rmtree(os.path.join(dh_html_path, 'assets', 'js'))
-
-        roots = {}
-        all_pages = doc_repo.doc_tree.get_pages()
-
-        for page in doc_repo.doc_tree.walk():
-            if page.extension_name not in roots:
-                roots[page.extension_name] = page
-
-        for page in roots.values():
-            self.__format_subtree(doc_repo.doc_tree, page)
-
-    def format_subpage_table(self, page, subpages):
-        res = []
-        res.append('<h3 class="devhelp-subpages">Subpages</h3>')
-        res.append('<table><tbody>')
-        for subpage in subpages:
-            ref = subpage.link.ref
-            if page.extension_name == 'core' and subpage.extension_name == 'gi-extension':
-                ref = 'c/%s' % ref
-            link = '<a href="%s">%s</a>' % (ref, subpage.get_title())
-            res.append('<tr class="devhelp-subpages"><td>%s</td><td>%s</td></tr>' %
-                (link, subpage.short_description or 'No summary available'))
-        res.append('</tbody></table>')
-        return '\n'.join(res)
 
     def __formatting_page_cb(self, formatter, page):
         page.output_attrs['html']['stylesheets'].add(
             os.path.join(HERE, 'devhelp.css'))
-        all_pages = self.doc_repo.doc_tree.get_pages()
-        subpages = [all_pages.get(p) for p in page.subpages]
-        if subpages:
-            page.output_attrs['html']['extra_html'].append(
-                self.format_subpage_table(page, subpages))
 
     def setup(self):
         if not DevhelpExtension.activated:
